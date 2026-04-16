@@ -3,13 +3,21 @@ Lab 11 — Configuration & API Key Setup
 """
 import os
 
+try:
+    # Optional convenience: if you create a local `.env`, it will be loaded here.
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    # Keep the lab runnable without extra dependency.
+    pass
+
 
 def setup_api_key():
-    """Load Google API key from environment or prompt."""
-    if "GOOGLE_API_KEY" not in os.environ:
-        os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key: ")
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-    print("API key loaded.")
+    """Load OpenAI API key from environment or prompt."""
+    if "OPENAI_API_KEY" not in os.environ:
+        os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key: ")
+    print("OpenAI API key loaded.")
 
 
 # Allowed banking topics (used by topic_filter)

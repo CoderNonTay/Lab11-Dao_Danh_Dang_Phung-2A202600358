@@ -10,6 +10,7 @@ import textwrap
 from google.genai import types
 from google.adk.agents import llm_agent
 from google.adk import runners
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
@@ -39,14 +40,22 @@ def content_filter(response: str) -> dict:
     issues = []
     redacted = response
 
-    # PII patterns to check
+    # PII/secrets patterns to check (keep conservative to reduce false negatives)
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # Phone numbers (Vietnam)
+        "phone_vn": r"\b0\d{9,10}\b",
+        # Email addresses
+        "email": r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}",
+        # National ID (CMND/CCCD) — common digit lengths
+        "national_id": r"\b\d{9}\b|\b\d{12}\b",
+        # API keys (pattern used in lab)
+        "api_key": r"\bsk-[a-zA-Z0-9-]{10,}\b",
+        # Password assignments
+        "password": r"password\s*[:=]\s*\S+",
+        # Database connection identifiers
+        "db_internal": r"db\.[a-zA-Z0-9_-]+\.internal",
+        # Generic secret markers
+        "secret": r"\bsecret\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -89,15 +98,12 @@ Respond with ONLY one word: SAFE or UNSAFE
 If UNSAFE, add a brief reason on the next line.
 """
 
-# TODO: Create safety_judge_agent using LlmAgent
-# Hint:
-# safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-2.0-flash",
-#     name="safety_judge",
-#     instruction=SAFETY_JUDGE_INSTRUCTION,
-# )
-
-safety_judge_agent = None  # TODO: Replace with implementation
+# Create safety_judge_agent using LlmAgent (OpenAI via LiteLlm)
+safety_judge_agent = llm_agent.LlmAgent(
+    model=LiteLlm(model="openai/gpt-4o-mini"),
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -172,16 +178,34 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # 1) Regex-based redaction for secrets/PII
+        filter_result = content_filter(response_text)
+        response_text_for_check = response_text
 
-        return llm_response  # TODO: modify if needed
+        if not filter_result["safe"]:
+            response_text_for_check = filter_result["redacted"]
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=response_text_for_check)],
+            )
+            self.redacted_count += 1
+
+        # 2) Optional LLM-as-judge safety check
+        if self.use_llm_judge:
+            verdict = await llm_safety_check(response_text_for_check)
+            if not verdict.get("safe", True):
+                self.blocked_count += 1
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                        text="I can't provide that information. I'm here to help with banking-related questions only."
+                        )
+                    ],
+                )
+
+        # 3) Return possibly modified response
+        return llm_response
 
 
 # ============================================================

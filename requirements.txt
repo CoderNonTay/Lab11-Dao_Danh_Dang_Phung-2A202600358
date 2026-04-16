@@ -1,3 +1,8 @@
 google-genai>=1.0.0
 google-adk>=0.3.0
-nemoguardrails>=0.10.0
+litellm
+python-dotenv
+# NeMo Guardrails pulls in `annoy`, which often fails to build on Windows
+# unless Microsoft C++ Build Tools are installed. Skip it on Windows so the
+# rest of the lab can be installed cleanly.
+nemoguardrails>=0.10.0; platform_system != "Windows"

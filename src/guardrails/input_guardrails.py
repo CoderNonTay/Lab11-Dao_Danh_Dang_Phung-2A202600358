@@ -38,9 +38,21 @@ def detect_injection(user_input: str) -> bool:
         True if injection detected, False otherwise
     """
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        # Ignore / override instruction patterns
+        r"ignore\s+(all\s+)?(previous|above)\s+instructions",
+        r"override\s+(safety|guardrails|instructions|system prompt)",
+        r"disregard\s+(all\s+)?(previous|prior)\s+instructions",
+        r"forget\s+(your|the\s+)?instructions",
+        r"override\s+your\s+system\s+prompt",
+        # Role confusion / authority impersonation
+        r"\byou\s+are\s+now\b",
+        r"\bpretend\s+you\s+are\b",
+        r"act\s+as\s+(a\s+|an\s+)?unrestricted",
+        r"you\s+are\s+an?\s+unrestricted\s+ai",
+        # Direct system prompt extraction requests
+        r"\bsystem\s+prompt\b",
+        r"reveal\s+your\s+(system\s+prompt|instructions|prompt)",
+        r"show\s+me\s+(your\s+)?(system\s+prompt|instructions)",
     ]
 
     for pattern in INJECTION_PATTERNS:
@@ -70,12 +82,16 @@ def topic_filter(user_input: str) -> bool:
     """
     input_lower = user_input.lower()
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    # 1) Hard block: contains any blocked topic keyword
+    if any(bt in input_lower for bt in BLOCKED_TOPICS):
+        return True
 
-    pass  # Replace with your implementation
+    # 2) Topic must match allowed keywords; otherwise consider it off-topic
+    if not any(at in input_lower for at in ALLOWED_TOPICS):
+        return True
+
+    # 3) Otherwise allow
+    return False
 
 
 # ============================================================
@@ -134,8 +150,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         # 2. Call topic_filter(text)
         #    - If True: increment blocked_count, return self._block_response("...")
         # 3. If both are False: return None (let message through)
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot help with requests that attempt to bypass safety rules or reveal internal instructions."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I can only help with banking-related questions (account, transactions, savings, interest rates, and payments)."
+            )
+
+        return None
 
 
 # ============================================================
